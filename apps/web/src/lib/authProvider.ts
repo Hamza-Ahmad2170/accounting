@@ -60,8 +60,8 @@ export const authProvider: AuthProvider = {
     // checked, never the status.
     const { data } = await authClient.getSession()
 
-    if (!data?.session) {
-      throw new Error('Not authenticated')
+    if (!data?.session.activeOrganizationId) {
+      throw { redirectTo: '/create-organization', message: false }
     }
   },
 

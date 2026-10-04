@@ -1,10 +1,9 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization } from "better-auth/plugins";
-import { db, organizationProfile } from "#/db/index.js";
+import { db } from "#/db/index.js";
 import * as authSchema from "#/db/schema/auth.js";
 import { env } from "#/config/env.js";
-import { asc, eq } from "drizzle-orm";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -15,17 +14,28 @@ export const auth = betterAuth({
     session: {
       create: {
         before: async (session) => {
-          const [oldest] = await db
-            .select({ organizationId: authSchema.member.organizationId })
-            .from(authSchema.member)
-            .where(eq(authSchema.member.userId, session.userId))
-            .orderBy(asc(authSchema.member.createdAt))
-            .limit(1);
+          /*
+           * Oldest membership wins, so a user in several orgs lands in the same
+           * one on every sign-in. This is the only point where the choice can be
+           * made deterministically: later switches go through
+           * `organization/set-active` and persist on the session row.
+           *
+           * Queried from the member table directly rather than through
+           * `auth.api.listOrganizations` - that helper authenticates off the
+           * request headers, and the session row it would read is the one this
+           * hook is in the middle of creating.
+           */
+          const oldestMembership = await db.query.member.findFirst({
+            where: {
+              userId: session.userId,
+            },
+            orderBy: (member, { asc }) => asc(member.createdAt),
+          });
 
           return {
             data: {
               ...session,
-              activeOrganizationId: oldest?.organizationId ?? null,
+              activeOrganizationId: oldestMembership?.organizationId ?? null,
             },
           };
         },
@@ -39,23 +49,8 @@ export const auth = betterAuth({
   plugins: [
     organization({
       allowUserToCreateOrganization: true,
-      organizationHooks: {
-        afterCreateOrganization: async ({ organization }) => {
-          try {
-            await db
-              .insert(organizationProfile)
-              .values({ organizationId: organization.id })
-              .onConflictDoNothing();
-          } catch (error) {
-            console.error(
-              `[auth] failed to create profile for organization ${organization.id}`,
-              error,
-            );
-          }
-        },
-      },
     }),
   ],
 });
 
-export type AuthSession = typeof auth.$Infer.Session | null;
+export type Session = typeof auth.$Infer.Session;

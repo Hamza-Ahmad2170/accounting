@@ -1,38 +1,32 @@
-import { createMiddleware } from "hono/factory";
-import { auth, type AuthSession } from "#/lib/auth.js";
+import { auth } from "#/lib/auth.js";
+import { problems } from "#/lib/problem.js";
+import { factory } from "#/lib/factory.js";
 
-/**
- * Context variables populated by `sessionMiddleware`.
- *
- * `typeof auth.$Infer.Session` is derived from the Better Auth instance rather
- * than hand-written, so the type tracks the instance automatically — including
- * fields contributed by plugins, such as `activeOrganizationId` from the
- * `organization()` plugin enabled in `lib/auth.ts`.
- */
-export type AuthVariables = {
-  Variables: {
-    session: AuthSession;
-  };
-};
+export const sessionMiddleware = factory.createMiddleware(async (c, next) => {
+  const session = await auth.api.getSession({
+    headers: c.req.raw.headers,
+  });
 
-/**
- * Resolves the current session once and stores it on the context.
- *
- * The raw request headers are handed to Better Auth so it parses the session
- * cookie itself — the same cookie the browser sends because the client uses
- * `credentials: "include"`.
- *
- * Attaching this to a route makes the session *available*; it does not require
- * one. Routes that need a signed-in user must check `c.get("session")` and
- * throw `HTTPException(401)` themselves, since the `null` case is legitimate
- * (a first-time visitor).
- */
-export const sessionMiddleware = createMiddleware<AuthVariables>(
-  async (c, next) => {
-    const session = await auth.api.getSession({
-      headers: c.req.raw.headers,
+  /*
+   * Thrown, not returned: `app.onError(problemHandler)` in `index.ts` is the only
+   * thing that turns a problem into `application/problem+json`, and returning
+   * here would skip it and emit a body shape nothing else in this API produces.
+   *
+   * A throw is safe this early in the chain, since Hono's `compose` wraps every
+   * handler in try/catch and routes the error to `onError`, and the `cors`
+   * middleware registered before this one still sets its headers afterwards.
+   *
+   * `UNAUTHENTICATED` rather than `HTTPException` because the registry carries a
+   * stable `code` and the `/problems/unauthenticated` type; the library's
+   * `HTTPException` branch emits no `code` and would type it
+   * `/problems/unauthorized`, so the two would disagree about the same 401.
+   */
+  if (!session) {
+    throw problems.create("UNAUTHENTICATED", {
+      detail: "No active session was found for this request.",
     });
-    c.set("session", session);
-    await next();
-  },
-);
+  }
+
+  c.set("session", session);
+  await next();
+});

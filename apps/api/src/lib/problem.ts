@@ -34,6 +34,18 @@ export const problems = createProblemTypeRegistry(
       status: 422,
       title: "Validation Error",
     },
+    /*
+     * 400, not 403: this is the state of being signed in with no org selected,
+     * not a permission failure. Better Auth agrees -- the org plugin throws
+     * `APIError.from("BAD_REQUEST", NO_ACTIVE_ORGANIZATION)`
+     * (`plugins/organization/routes/crud-members.mjs`), so a client hitting the
+     * plugin's own endpoints sees 400 for the same condition.
+     */
+    NO_ACTIVE_ORGANIZATION: {
+      type: "/problems/no-active-organization",
+      status: 400,
+      title: "No Active Organization",
+    },
   },
   { autoCode: true },
 );
