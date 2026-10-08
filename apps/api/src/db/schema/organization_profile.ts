@@ -2,6 +2,7 @@ import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
 import { organization } from "./auth.js";
 
 export const organizationProfile = pgTable("organization_profile", {
+  name: text("name").notNull(),
   organizationId: text("organization_id")
     .primaryKey()
     .references(() => organization.id, { onDelete: "cascade" }),
